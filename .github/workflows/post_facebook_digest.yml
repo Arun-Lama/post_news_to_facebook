@@ -1,4 +1,4 @@
-# Build content.txt from Sharesansar and post to the Facebook Page via post_to_facebook.py.
+# Build content.html from Sharesansar and post plain text to the Facebook Page via post_to_facebook.py.
 #
 # Daily at 9:00 AM Nepal Time (NPT, UTC+5:45). GitHub Actions cron is UTC-only → 03:15 UTC.
 #

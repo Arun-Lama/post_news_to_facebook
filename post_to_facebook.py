@@ -1,12 +1,18 @@
 """
-Build the Sharesansar digest (``content.txt``) and post it to the Facebook Page
-using ``FB_PAGE_ID`` and ``FB_PAGE_ACCESS_TOKEN`` from the environment.
+Build the Sharesansar digest (``content.html``) and optionally post plain text to the Page.
 
-Set ``FACEBOOK_POST=0`` to build only and skip the Graph API call.
+Posting is controlled by:
+
+- ``FACEBOOK_POST`` env: ``1`` / ``true`` / ``yes`` / ``on`` = post (default if unset).
+  ``0`` / ``false`` / ``no`` / ``off`` = build only (no Graph API call).
+- ``python post_to_facebook.py --no-post`` — always skips posting (handy for local tests).
+
+Uses ``FB_PAGE_ID`` and ``FB_PAGE_ACCESS_TOKEN`` from the environment.
 """
 
 from __future__ import annotations
 
+import argparse
 import os
 import re
 from pathlib import Path
@@ -17,7 +23,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 _BASE = Path(__file__).resolve().parent
-_CONTENT_FILE = _BASE / "content.txt"
+_CONTENT_HTML = _BASE / "content.html"
 
 # Facebook feed message max length (leave headroom)
 _MAX_MESSAGE_CHARS = 62_000
@@ -160,26 +166,44 @@ def post_multiple_images_single_post(
     return response.json()
 
 
-def build_and_post_digest() -> None:
-    """Regenerate ``content.txt`` and publish it to the configured Page."""
+def _facebook_post_enabled() -> bool:
+    flag = (os.getenv("FACEBOOK_POST") or "1").strip().lower()
+    return flag in ("1", "true", "yes", "on")
+
+
+def build_and_post_digest(*, no_post: bool = False) -> None:
+    """Regenerate ``content.html`` and publish plain text to the Page when enabled."""
     import build_facebook_content as bfc
 
-    out_path = bfc.write_content_txt(_CONTENT_FILE)
+    plain, out_path = bfc.write_content_html(_CONTENT_HTML)
     print(f"Wrote digest: {out_path}")
 
-    flag = (os.getenv("FACEBOOK_POST") or "1").strip().lower()
-    if flag not in ("1", "true", "yes", "on"):
-        print("FACEBOOK_POST is not enabled; skipping Graph API post.")
+    if no_post:
+        print("--no-post: skipping Graph API.")
         return
 
-    text = _CONTENT_FILE.read_text(encoding="utf-8").strip()
-    if not text:
-        print("content.txt is empty; nothing to post.")
+    if not _facebook_post_enabled():
+        print("FACEBOOK_POST is off (0/false/no/off); skipping Graph API post.")
         return
 
-    result = post_text_to_page(text)
+    if not plain.strip():
+        print("Digest is empty; nothing to post.")
+        return
+
+    result = post_text_to_page(plain)
     print("Posted to Facebook:", result.get("id", result))
 
 
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Build digest HTML and optionally post to Facebook.")
+    parser.add_argument(
+        "--no-post",
+        action="store_true",
+        help="Build content.html only; never call the Facebook API.",
+    )
+    args = parser.parse_args()
+    build_and_post_digest(no_post=args.no_post)
+
+
 if __name__ == "__main__":
-    build_and_post_digest()
+    main()

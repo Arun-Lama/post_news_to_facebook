@@ -1,11 +1,13 @@
 """
-Build a plain-text Facebook post from Sharesansar scrapers and save ``content.txt``.
+Build a Sharesansar digest for Facebook, save ``content.html`` (UTF-8 preview with emojis),
+and expose the same body as plain text for the Graph API ``message`` field.
 
 Run (from this folder): ``python build_facebook_content.py``
 """
 
 from __future__ import annotations
-
+from datetime import datetime
+import html
 import time
 import urllib.parse
 from datetime import date, datetime
@@ -94,19 +96,32 @@ def _ipo_style_label(code: int | None) -> str:
     return {0: "Open", -1: "Coming Soon", 1: "Closed", -2: ""}.get(code, str(code))
 
 
+def _cell(row: object, key: str) -> str:
+    """Single table cell as plain text; empty if missing or NaN."""
+    if not hasattr(row, "get"):
+        return ""
+    v = row.get(key, "")
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return ""
+    s = str(v).strip()
+    if not s or s.lower() == "nan":
+        return ""
+    return s
+
+
 def _format_news(df: pd.DataFrame) -> str | None:
     if df.empty:
         return None
     lines = [
-        "📰 Latest market news",
-        f"🔗 Open news: {shorten_url(NEWS_LIST_URL)}",
+        "🧠 Market Pulse Nepal: What Investors Need to Know Today",
+        f"({datetime.now().strftime('%A, %B %d, %Y')})",
         "",
     ]
     last_date_label: str | None = None
+    had_story_under_date = False
     for _, row in df.iterrows():
         date_label = str(row.get("Published Date", "") or "").strip()
         title = str(row.get("News", "") or "").strip()
-        url = str(row.get("URL", "") or "").strip()
         if not title:
             continue
         if date_label and date_label != last_date_label:
@@ -114,24 +129,30 @@ def _format_news(df: pd.DataFrame) -> str | None:
                 lines.append("")
             lines.append(f"📅 {date_label}")
             last_date_label = date_label
+            had_story_under_date = False
+        if had_story_under_date:
+            lines.append("")
         lines.append(f"  📌 {title}")
-        if url:
-            lines.append(f"     🔗 {shorten_url(url)}")
+        had_story_under_date = True
     return "\n".join(lines)
 
 
 def _format_announcements(df: pd.DataFrame) -> str | None:
     if df.empty:
         return None
-    lines = ["Announcements:", f"Open news: {shorten_url(ANNOUNCEMENTS_LIST_URL)}"]
+    lines = [
+        "Announcements",
+        "",
+    ]
+    first = True
     for _, row in df.iterrows():
         text = str(row.get("Announcement", "") or "").strip()
         if not text:
             continue
-        lines.append(f"- {text}")
-        url = str(row.get("URL", "") or "").strip()
-        if url:
-            lines.append(f"  {shorten_url(url)}")
+        if not first:
+            lines.append("")
+        first = False
+        lines.append(f"• {text}")
     return "\n".join(lines)
 
 
@@ -144,15 +165,26 @@ def _format_right_share(df: pd.DataFrame) -> str | None:
     if sub.empty:
         return None
     lines = [
-        "Right share (Open / Coming Soon):",
-        f"Open table: {shorten_url(EXISTING_ISSUES_URL)}",
+        "Right share (open or coming soon)",
+        "",
     ]
+    first = True
     for _, row in sub.iterrows():
         label = _ipo_style_label(_status_to_int(row["Status"]))
-        lines.append(
-            f"- [{label}] Symbol: {row.get('Symbol', '')} | Opening Date: {row.get('Opening Date', '')} | "
-            f"Closing Date: {row.get('Closing Date', '')} | Book Closure Date: {row.get('Final Date', '')}"
-        )
+        sym = _cell(row, "Symbol")
+        if not sym:
+            continue
+        if not first:
+            lines.append("")
+        first = False
+        lines.append(f"• {sym} — {label}")
+        od, cd, bc = _cell(row, "Opening Date"), _cell(row, "Closing Date"), _cell(row, "Final Date")
+        if od:
+            lines.append(f"  Opens: {od}")
+        if cd:
+            lines.append(f"  Closes: {cd}")
+        if bc:
+            lines.append(f"  Book closure: {bc}")
     return "\n".join(lines)
 
 
@@ -165,15 +197,26 @@ def _format_ipo(df: pd.DataFrame) -> str | None:
     if sub.empty:
         return None
     lines = [
-        "IPO (Open / Coming Soon):",
-        f"Open table: {shorten_url(EXISTING_ISSUES_URL)}",
+        "IPO (open or coming soon)",
+        "",
     ]
+    first = True
     for _, row in sub.iterrows():
         label = _ipo_style_label(_status_to_int(row["Status"]))
-        lines.append(
-            f"- [{label}] Symbol: {row.get('Symbol', '')} | Opening Date: {row.get('Opening Date', '')} | "
-            f"Closing Date: {row.get('Closing Date', '')} | Last Closing Date: {row.get('Final Date', '')}"
-        )
+        sym = _cell(row, "Symbol")
+        if not sym:
+            continue
+        if not first:
+            lines.append("")
+        first = False
+        lines.append(f"• {sym} — {label}")
+        od, cd, lcd = _cell(row, "Opening Date"), _cell(row, "Closing Date"), _cell(row, "Final Date")
+        if od:
+            lines.append(f"  Opens: {od}")
+        if cd:
+            lines.append(f"  Closes: {cd}")
+        if lcd:
+            lines.append(f"  Last close: {lcd}")
     return "\n".join(lines)
 
 
@@ -185,12 +228,46 @@ def _format_auction(df: pd.DataFrame, heading: str) -> str | None:
     sub = df[df["_st"] == 0]
     if sub.empty:
         return None
-    lines = [heading, f"Open table: {shorten_url(AUCTION_URL)}"]
+    lines = [heading, ""]
+    first = True
     for _, row in sub.iterrows():
-        lines.append(
-            f"- Symbol: {row.get('Symbol', '')} | Opening Date: {row.get('Opening Date', '')} | "
-            f"Closing Date: {row.get('Closing Date', '')}"
-        )
+        sym = _cell(row, "Symbol")
+        if not sym:
+            continue
+        if not first:
+            lines.append("")
+        first = False
+        lines.append(f"• {sym}")
+        od, cd = _cell(row, "Opening Date"), _cell(row, "Closing Date")
+        if od:
+            lines.append(f"  Opens: {od}")
+        if cd:
+            lines.append(f"  Closes: {cd}")
+    return "\n".join(lines)
+
+
+def _format_source_links(
+    *,
+    has_news: bool,
+    has_announcements: bool,
+    has_existing_issues: bool,
+    has_auction: bool,
+) -> str | None:
+    """One shortened URL per source page, listed once at the end."""
+    rows: list[tuple[str, str]] = []
+    if has_news:
+        rows.append(("Latest news (Sharesansar)", NEWS_LIST_URL))
+    if has_announcements:
+        rows.append(("Announcements", ANNOUNCEMENTS_LIST_URL))
+    if has_existing_issues:
+        rows.append(("Right shares & IPOs — existing issues", EXISTING_ISSUES_URL))
+    if has_auction:
+        rows.append(("Auctions", AUCTION_URL))
+    if not rows:
+        return None
+    lines = ["────────", "Source pages", ""]
+    for label, url in rows:
+        lines.append(f"{label}: {shorten_url(url)}")
     return "\n".join(lines)
 
 
@@ -208,31 +285,70 @@ def build_facebook_post_text() -> str:
     auction_ord_df = sharesansar_auction_many_pages(0, max_pages=10)
     auction_pro_df = sharesansar_auction_many_pages(1, max_pages=10)
 
+    block_news = _format_news(news_df)
+    block_ann = _format_announcements(ann_df)
+    block_right = _format_right_share(right_df)
+    block_ipo = _format_ipo(ipo_df)
+    block_auc_ord = _format_auction(auction_ord_df, "Auction — ordinary share (open)")
+    block_auc_pro = _format_auction(auction_pro_df, "Auction — promoter share (open)")
+
     parts: list[str] = []
     for block in (
-        _format_news(news_df),
-        _format_announcements(ann_df),
-        _format_right_share(right_df),
-        _format_ipo(ipo_df),
-        _format_auction(auction_ord_df, "Auction - ordinary share (Open):"),
-        _format_auction(auction_pro_df, "Auction - promoter share (Open):"),
+        block_news,
+        block_ann,
+        block_right,
+        block_ipo,
+        block_auc_ord,
+        block_auc_pro,
     ):
         if block:
             parts.append(block)
 
+    links = _format_source_links(
+        has_news=block_news is not None,
+        has_announcements=block_ann is not None,
+        has_existing_issues=block_right is not None or block_ipo is not None,
+        has_auction=block_auc_ord is not None or block_auc_pro is not None,
+    )
+    if links:
+        parts.append(links)
+
     return "\n\n".join(parts).strip() + "\n"
 
 
-def write_content_txt(out_path: Path | None = None) -> Path:
+def _plain_to_html_document(plain: str) -> str:
+    """Minimal HTML5 wrapper so browsers show emojis and line breaks correctly."""
+    body = html.escape(plain, quote=False)
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Facebook digest preview</title>
+  <style>
+    body {{ font-family: system-ui, "Segoe UI", Roboto, sans-serif; margin: 1rem; background: #f6f6f6; color: #111; }}
+    pre {{ white-space: pre-wrap; word-break: break-word; font-size: 0.95rem; line-height: 1.5;
+           background: #fff; padding: 1rem 1.1rem; border-radius: 10px; border: 1px solid #e4e4e4; }}
+  </style>
+</head>
+<body>
+<pre>{body}</pre>
+</body>
+</html>
+"""
+
+
+def write_content_html(out_path: Path | None = None) -> tuple[str, Path]:
+    """Write ``content.html`` and return ``(plain_text, path)`` for the same digest."""
     if out_path is None:
-        out_path = Path(__file__).resolve().parent / "content.txt"
-    text = build_facebook_post_text()
-    out_path.write_text(text, encoding="utf-8")
-    return out_path
+        out_path = Path(__file__).resolve().parent / "content.html"
+    plain = build_facebook_post_text()
+    out_path.write_text(_plain_to_html_document(plain), encoding="utf-8")
+    return plain, out_path
 
 
 def main() -> None:
-    path = write_content_txt()
+    _, path = write_content_html()
     print(f"Wrote {path}")
 
 
