@@ -6,15 +6,12 @@ Run (from this folder): ``python build_facebook_content.py``
 """
 
 from __future__ import annotations
-from datetime import datetime
+
 import html
-import time
-import urllib.parse
 from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
-import requests
 
 from sharesansar_news import (
     sharesansar_announcement_pages,
@@ -27,29 +24,6 @@ NEWS_LIST_URL = "https://www.sharesansar.com/category/latest"
 ANNOUNCEMENTS_LIST_URL = "https://www.sharesansar.com/announcement"
 EXISTING_ISSUES_URL = "https://www.sharesansar.com/existing-issues"
 AUCTION_URL = "https://www.sharesansar.com/auction"
-
-_SHORT_CACHE: dict[str, str] = {}
-
-
-def shorten_url(url: str) -> str:
-    """Shorten via is.gd; on failure return the original URL. Deduplicates within the run."""
-    url = (url or "").strip()
-    if not url.startswith("http"):
-        return url
-    if url in _SHORT_CACHE:
-        return _SHORT_CACHE[url]
-    api = "https://is.gd/create.php?format=simple&url=" + urllib.parse.quote(url, safe="")
-    try:
-        r = requests.get(api, timeout=15)
-        text = (r.text or "").strip()
-        if r.ok and text.startswith("http") and not text.lower().startswith("error"):
-            _SHORT_CACHE[url] = text
-            time.sleep(0.25)
-            return text
-    except OSError:
-        pass
-    _SHORT_CACHE[url] = url
-    return url
 
 
 def _parse_published_date(value: object) -> date | None:
@@ -253,7 +227,7 @@ def _format_source_links(
     has_existing_issues: bool,
     has_auction: bool,
 ) -> str | None:
-    """One shortened URL per source page, listed once at the end."""
+    """One full URL per source page, listed once at the end."""
     rows: list[tuple[str, str]] = []
     if has_news:
         rows.append(("Latest news (Sharesansar)", NEWS_LIST_URL))
@@ -267,13 +241,11 @@ def _format_source_links(
         return None
     lines = ["────────", "Source pages", ""]
     for label, url in rows:
-        lines.append(f"{label}: {shorten_url(url)}")
+        lines.append(f"{label}: {url}")
     return "\n".join(lines)
 
 
 def build_facebook_post_text() -> str:
-    _SHORT_CACHE.clear()
-
     news_df = sharesansar_latest_pages(pages=5)
     news_df = filter_last_n_calendar_dates(news_df, "Published Date", 2)
 
