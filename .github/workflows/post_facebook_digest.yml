@@ -1,0 +1,45 @@
+# Build content.txt from Sharesansar and post to the Facebook Page via post_to_facebook.py.
+#
+# Daily at 9:00 AM Nepal Time (NPT, UTC+5:45). GitHub Actions cron is UTC-only → 03:15 UTC.
+#
+# Create these repository secrets (same names as your .env keys):
+#   FB_PAGE_ID, FB_PAGE_ACCESS_TOKEN, HUB_TOKEN, GEMINI_API,
+#   QUANTITATIVENEPSE_APP_SECRET, QUANTITATIVENEPSE_APP_ID, FACEBOOK_POST
+# FACEBOOK_POST: use 0/false to build only; omit or use 1/true to publish.
+# Scheduled runs can be delayed; see GitHub Actions documentation.
+
+name: Post Facebook digest
+
+on:
+  schedule:
+    - cron: '15 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  post-digest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build digest and post to Facebook
+        env:
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_ACCESS_TOKEN: ${{ secrets.FB_PAGE_ACCESS_TOKEN }}
+          HUB_TOKEN: ${{ secrets.HUB_TOKEN }}
+          GEMINI_API: ${{ secrets.GEMINI_API }}
+          QUANTITATIVENEPSE_APP_SECRET: ${{ secrets.QUANTITATIVENEPSE_APP_SECRET }}
+          QUANTITATIVENEPSE_APP_ID: ${{ secrets.QUANTITATIVENEPSE_APP_ID }}
+          FACEBOOK_POST: ${{ secrets.FACEBOOK_POST }}
+        run: python post_to_facebook.py
